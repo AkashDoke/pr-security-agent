@@ -28,7 +28,7 @@ jobs:
       - name: Checkout agent code
         uses: actions/checkout@v4
         with:
-          repository: your-org/pr-security-agent   # <-- set this to your actual org/repo
+          repository: AkashDoke/pr-security-agent   # <-- set this to your actual org/repo
           ref: ${{ inputs.agent_ref }}
           path: .pr-agent
 

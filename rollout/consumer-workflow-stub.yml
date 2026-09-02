@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   review:
-    uses: your-org/pr-security-agent/.github/workflows/pr-review-reusable.yml@main
+    uses: AkashDoke/pr-security-agent/.github/workflows/pr-review-reusable.yml@main
     secrets: inherit
     # secrets: inherit passes through the org-level ANTHROPIC_API_KEY (set once,
     # see rollout/README.md) plus the repo's own GITHUB_TOKEN automatically.
