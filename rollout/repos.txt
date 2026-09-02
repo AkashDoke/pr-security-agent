@@ -1,0 +1,4 @@
+# One owner/repo per line. Lines starting with # are ignored.
+your-org/repo-a
+your-org/repo-b
+your-org/repo-c

@@ -1,0 +1,54 @@
+name: PR Review (reusable)
+
+on:
+  workflow_call:
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
+    inputs:
+      agent_ref:
+        description: "Branch/tag of pr-security-agent to run (pin this in production)"
+        type: string
+        default: main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout calling repo's PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Checkout agent code
+        uses: actions/checkout@v4
+        with:
+          repository: your-org/pr-security-agent   # <-- set this to your actual org/repo
+          ref: ${{ inputs.agent_ref }}
+          path: .pr-agent
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r .pr-agent/requirements.txt
+          pip install semgrep
+
+      - name: Run AI PR review agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PYTHONPATH: .pr-agent
+        run: python .pr-agent/main.py

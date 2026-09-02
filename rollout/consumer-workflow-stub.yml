@@ -1,0 +1,18 @@
+name: AI PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    uses: your-org/pr-security-agent/.github/workflows/pr-review-reusable.yml@main
+    secrets: inherit
+    # secrets: inherit passes through the org-level ANTHROPIC_API_KEY (set once,
+    # see rollout/README.md) plus the repo's own GITHUB_TOKEN automatically.
+    # Pin to a tag instead of @main once you're past the pilot, e.g. @v1.0.0,
+    # so agent updates don't silently change behavior on every repo at once.
