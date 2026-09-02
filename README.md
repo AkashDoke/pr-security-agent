@@ -91,7 +91,32 @@ Both scripts fetch the PR's real base/head SHAs from the GitHub API, then
 `git fetch` those commits into your local clone so the diff/file-reading
 tools can operate on them exactly as they do in Actions.
 
+### Language support
+Nothing here is Python-specific — the agent code (`agents/`, `tools/`) is
+Python, but it only orchestrates: reading diffs, grepping, running Semgrep,
+and calling Claude. All of that operates on whatever language is in the
+repo. Verified working against a React/TypeScript (`.tsx`) diff including
+JSX syntax during development of this project — diffing, `get_file_content`,
+`search_codebase`, and Semgrep's TSX parsing all handle it correctly.
+
+The `security_system.md` prompt includes frontend-specific vulnerability
+classes (XSS via `dangerouslySetInnerHTML`/`innerHTML`, hardcoded secrets in
+client bundles, open redirects, insecure `postMessage`, client-side-only
+auth checks, sensitive data in `localStorage`) alongside the general/backend
+ones — tune it further for your stack (Vue, Angular, etc.) if needed.
+
+**Note on Semgrep:** `run_semgrep` uses `--config=auto`, which downloads
+rules from Semgrep's registry over the network at run time. This works by
+default on GitHub-hosted Actions runners (they have full internet access).
+If you're on a self-hosted runner with restricted egress, `--config=auto`
+will fail — pin to a specific ruleset instead (e.g.
+`--config=p/javascript --config=p/typescript --config=p/react --config=p/secrets`
+in `tools/analysis_tools.py`), which still needs registry access once to
+fetch those, or vendor rules locally as `.yml` files and point
+`--config=/path/to/rules` at them for a fully offline setup.
+
 ### 7. (Optional) Make it a required check
+
 `Settings → Branches → Branch protection rules → Require status checks to
 pass` → add `review (AI PR Review)`. This blocks merges when the agent
 returns `request_changes` — since `main.py` exits non-zero in that case, the
