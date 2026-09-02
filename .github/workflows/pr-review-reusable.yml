@@ -37,10 +37,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           pip install -r .pr-agent/requirements.txt
           pip install semgrep
+
+      - name: Set up Node.js (for dependency audit, only if the repo has one)
+        if: hashFiles('package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies (for dependency audit)
+        if: hashFiles('package.json') != ''
+        # --ignore-scripts: this runs on an attacker-controllable PR diff,
+        # so skip postinstall/prepare scripts as defense in depth.
+        # continue-on-error: a broken install shouldn't fail the whole
+        # review — the dependency agent just reports nothing if this fails.
+        continue-on-error: true
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --ignore-scripts || npm install --package-lock-only --ignore-scripts
+          else
+            npm install --package-lock-only --ignore-scripts
+          fi
+
+      - name: Install ESLint (for React coding standards agent)
+        if: hashFiles('package.json') != ''
+        continue-on-error: true
+        run: |
+          npm install --no-save --ignore-scripts \
+            eslint@^8 eslint-plugin-react eslint-plugin-react-hooks eslint-plugin-jsx-a11y \
+            @typescript-eslint/parser @typescript-eslint/eslint-plugin
 
       - name: Run AI PR review agent
         env:

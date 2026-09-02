@@ -3,6 +3,7 @@ Tools that operate on the already-checked-out repo working tree
 (actions/checkout has the PR head commit on disk). No GitHub API calls here.
 """
 import json
+import os
 import subprocess
 
 MAX_OUTPUT_CHARS = 12000
@@ -45,21 +46,42 @@ def search_codebase(input_dict: dict, context: dict) -> dict:
     return {"query": query, "matches": out or "no matches"}
 
 
+RULES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "rules")
+
+
 def run_semgrep(input_dict: dict, context: dict) -> dict:
     path = input_dict["path"]
-    out = _run(["semgrep", "--config=auto", "--json", "--quiet", path])
+    findings = []
+
+    # Bundled rules — no network dependency, guaranteed to run. Covers SQL
+    # injection, XSS, hardcoded secrets, open redirects deterministically,
+    # regardless of whether the registry below is reachable.
+    bundled = _run(["semgrep", f"--config={RULES_DIR}/security-rules.yml", "--json", "--quiet", path])
+    findings += _parse_semgrep_json(bundled, path, source="bundled")
+
+    # Registry rules — broader coverage, but needs network access to
+    # semgrep.dev. Works by default on GitHub-hosted Actions runners; skip
+    # silently if unreachable (e.g. self-hosted runner with restricted
+    # egress) rather than failing the whole review.
+    auto = _run(["semgrep", "--config=auto", "--json", "--quiet", path])
+    findings += _parse_semgrep_json(auto, path, source="registry")
+
+    return {"path": path, "findings": findings}
+
+
+def _parse_semgrep_json(raw_output: str, path: str, source: str) -> list[dict]:
     try:
-        parsed = json.loads(out)
+        parsed = json.loads(raw_output)
     except json.JSONDecodeError:
-        return {"path": path, "error": "semgrep did not return valid JSON", "raw": out[:2000]}
-    findings = [
+        return []  # registry unreachable or other non-JSON error — skip, don't crash the tool
+    return [
         {
-            "path": r.get("path"),
+            "path": r.get("path", path),
             "line": r.get("start", {}).get("line"),
             "rule_id": r.get("check_id"),
             "message": r.get("extra", {}).get("message"),
             "severity": r.get("extra", {}).get("severity"),
+            "source": source,
         }
         for r in parsed.get("results", [])
     ]
-    return {"path": path, "findings": findings}

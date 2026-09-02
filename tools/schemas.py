@@ -22,12 +22,34 @@ SEARCH_CODEBASE = {
 
 RUN_SEMGREP = {
     "name": "run_semgrep",
-    "description": "Run Semgrep static security analysis on a specific file and return its findings.",
+    "description": "Run Semgrep static security analysis on a specific file and return its findings. Runs both a bundled deterministic ruleset (SQL injection, XSS, hardcoded secrets, open redirects — no network needed) and Semgrep's broader registry ruleset (best-effort, needs network).",
     "input_schema": {
         "type": "object",
         "properties": {"path": {"type": "string"}},
         "required": ["path"],
     },
+}
+
+RUN_ESLINT = {
+    "name": "run_eslint",
+    "description": "Run ESLint against a specific React/JS/TS file using a bundled ruleset (eslint:recommended + react, react-hooks, and jsx-a11y recommended rules) and return its findings. Deterministic, does not depend on the target repo's own ESLint config.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    },
+}
+
+RUN_NPM_AUDIT = {
+    "name": "run_npm_audit",
+    "description": "Check the repo's npm dependencies for known security vulnerabilities (via the npm/GitHub advisory database). Returns each vulnerable package, severity, and advisory titles/links.",
+    "input_schema": {"type": "object", "properties": {}},
+}
+
+RUN_NPM_OUTDATED = {
+    "name": "run_npm_outdated",
+    "description": "Check the repo's npm dependencies for available updates. Returns each outdated package with its current and latest available version.",
+    "input_schema": {"type": "object", "properties": {}},
 }
 
 FINDING_SCHEMA = {

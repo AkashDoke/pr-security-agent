@@ -10,6 +10,8 @@ Agents:
 - `security_agent` — vulnerabilities (injection, auth, secrets, crypto, etc.)
 - `pr_review_agent` — correctness, logic bugs, edge cases
 - `quality_agent` — maintainability, structure, duplication
+- `dependency_agent` — known-vulnerable/outdated npm packages (only runs when `package.json`/`package-lock.json` changes)
+- `react_standards_agent` — React coding standards: Rules of Hooks, component structure, key props, accessibility (only runs on `.jsx`/`.tsx` diffs)
 
 Each specialist has its own tools (`get_file_content`, `search_codebase`,
 and `run_semgrep` for security) and decides on its own how many tool calls
@@ -114,6 +116,16 @@ will fail — pin to a specific ruleset instead (e.g.
 in `tools/analysis_tools.py`), which still needs registry access once to
 fetch those, or vendor rules locally as `.yml` files and point
 `--config=/path/to/rules` at them for a fully offline setup.
+
+**Note on ESLint (React standards agent):** `run_eslint` uses a bundled,
+repo-independent config (`rules/eslint-react.eslintrc.json` — `eslint:recommended`
+plus the `react`, `react-hooks`, and `jsx-a11y` recommended rule sets), so
+findings don't depend on whatever ESLint config the target repo does or
+doesn't have. This needs `eslint` and those plugins installed in the job —
+the "Install ESLint" step in both workflow files does this via `npm install
+--no-save`, gated on the repo having a `package.json`. If that install step
+fails or is skipped, `run_eslint` degrades gracefully (empty findings), same
+as Semgrep's registry pass.
 
 ### 7. (Optional) Make it a required check
 

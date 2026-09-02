@@ -1,0 +1,99 @@
+rules:
+  # --- SQL injection ---
+  - id: sql-injection-string-concat-js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >
+      SQL query built via string concatenation/template literal with a variable.
+      Use parameterized queries (?, $1, or your ORM's query builder) instead.
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.query("..." + $VAR + "...")
+          - pattern: $CONN.query(`...${$VAR}...`)
+          - pattern: $CONN.execute("..." + $VAR + "...")
+          - pattern: $CONN.execute(`...${$VAR}...`)
+          - pattern: |
+              $Q = "..." + $VAR;
+              ...
+              $CONN.query($Q);
+          - pattern: |
+              $Q = `...${$VAR}...`;
+              ...
+              $CONN.query($Q);
+
+  - id: sql-injection-string-concat-python
+    languages: [python]
+    severity: ERROR
+    message: >
+      SQL query built via string concatenation/f-string with a variable.
+      Use parameterized queries (cursor.execute(query, params)) instead.
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute("..." + $VAR + "...")
+          - pattern: $CURSOR.execute(f"...{$VAR}...")
+          - pattern: $CURSOR.execute("...%s..." % $VAR)
+          - pattern: |
+              $Q = "..." + $VAR
+              ...
+              $CURSOR.execute($Q)
+          - pattern: |
+              $Q = f"...{$VAR}..."
+              ...
+              $CURSOR.execute($Q)
+
+  - id: sql-injection-raw-query-orm
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: >
+      Raw/unescaped ORM query method (sequelize.query, knex.raw, prisma.$queryRawUnsafe)
+      called with a non-literal argument. Verify the input isn't user-controlled, or
+      switch to the parameterized variant.
+    patterns:
+      - pattern-either:
+          - pattern: $DB.query($VAR, ...)
+          - pattern: $DB.raw($VAR, ...)
+          - pattern: $PRISMA.$queryRawUnsafe($VAR, ...)
+      - metavariable-pattern:
+          metavariable: $VAR
+          patterns:
+            - pattern-not: "..."   # excludes plain string literals from matching further below
+      - pattern-not: $DB.query("...", ...)
+      - pattern-not: $DB.raw("...", ...)
+      - pattern-not: $PRISMA.$queryRawUnsafe("...", ...)
+
+  # --- Frontend / React-specific (kept from earlier validation) ---
+  - id: react-dangerously-set-inner-html
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >
+      dangerouslySetInnerHTML with a variable — verify the value is sanitized
+      (e.g. DOMPurify) before it reaches the DOM. Untrusted HTML here is stored XSS.
+    patterns:
+      - pattern: |
+          <$EL dangerouslySetInnerHTML={{ __html: $VAR }} />
+
+  - id: hardcoded-secret-key
+    languages: [typescript, javascript, python]
+    severity: ERROR
+    message: >
+      Hardcoded API key/secret pattern detected. Anything in frontend source ships
+      to the browser and is trivially extractable — move to a server-side env var.
+    patterns:
+      - pattern-either:
+          - pattern-regex: 'sk_live_[A-Za-z0-9]{20,}'
+          - pattern-regex: 'AKIA[0-9A-Z]{16}'
+          - pattern-regex: 'sk-[A-Za-z0-9]{32,}'
+          - pattern-regex: 'ghp_[A-Za-z0-9]{36,}'
+
+  - id: open-redirect-window-location
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >
+      window.location set from a variable — confirm it's validated against an
+      allow-list, otherwise this is an open redirect.
+    patterns:
+      - pattern-either:
+          - pattern: window.location.href = $VAR
+          - pattern: window.location = $VAR
+      - pattern-not: window.location.href = "..."
+      - pattern-not: window.location = "..."
