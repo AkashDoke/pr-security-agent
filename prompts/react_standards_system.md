@@ -29,7 +29,11 @@ React-idiomatic conventions.
 # How to work
 1. Read the diff. Use `get_file_content` for full-component context when a
    component's structure or hook usage can't be judged from the diff hunk
-   alone.
+   alone. **Only report findings on lines this PR actually changed** (the
+   `+`/context lines shown in the diff) — if `get_file_content` surfaces a
+   pre-existing issue on code the diff doesn't touch, do not report it as a
+   finding; GitHub can't attach an inline comment there and it will be
+   dropped from the review anyway.
 2. Use `run_eslint` on every changed `.jsx`/`.tsx`/`.js`/`.ts` file that
    touches component or hook code — it deterministically catches Rules of
    Hooks violations, exhaustive-deps issues, and common jsx-a11y problems.

@@ -139,6 +139,48 @@ recent being a workflow repo-reference fix (`02bf62b`).
 - `AGENT_MAX_TURNS` env var — default 15 (10 for orchestrator explicitly, 6 for dependency agent explicitly — both override the env default in their `Agent(...)` construction).
 - `ANTHROPIC_API_KEY`, `GITHUB_TOKEN` — required env vars everywhere.
 
+## Fixed bug: 422 from GitHub on findings outside the diff (2026-09-03)
+
+**Symptom**: `post_review()` → `resp.raise_for_status()` raised
+`requests.exceptions.HTTPError: 422 Client Error: Unprocessable Entity` on
+`POST /repos/.../pulls/.../reviews`, losing the entire review (no comments,
+no summary posted) even though the orchestrator had produced valid findings.
+
+**Root cause**: GitHub's create-review endpoint rejects the *whole batched
+request* if even one inline comment's `line` isn't part of the PR's diff
+hunks. Observed directly: `react_standards_agent` used `get_file_content` to
+read full file context, noticed two genuinely pre-existing a11y issues in
+`Navbar.jsx` (self-labeled `"Pre-existing... out of scope for this diff"` in
+the finding title) and reported them anyway — those lines weren't in any
+diff hunk, so the single POST 422'd and every other finding from every other
+agent was silently dropped too.
+
+**Fix** (both parts landed):
+1. **Root cause** — added an explicit instruction to `security_system.md`,
+   `pr_review_system.md`, `quality_system.md`, `react_standards_system.md`:
+   only report findings on lines the diff actually changed; if
+   `get_file_content` surfaces something pre-existing/out of scope, don't
+   report it as a finding.
+2. **Defense in depth** — `tools/analysis_tools.get_diff_line_map(base_sha,
+   head_sha)` (new) parses the full (untruncated) unified diff and returns
+   `{file: set(valid new-file line numbers)}` — every context/added line in
+   every hunk, mirroring exactly what GitHub's API will accept for a `RIGHT`-side
+   inline comment. `tools/github_tools.post_review()` now takes an optional
+   `valid_lines` param: findings whose `(file, line)` isn't in that map are
+   demoted into the summary body as a plain bulleted list instead of being
+   sent as inline comments — so an errant out-of-diff finding (from any
+   agent, including future ones) can no longer take the whole review down.
+   `post_review()` also now prints the response body on a non-2xx status
+   before re-raising, so any future failure is diagnosable directly from the
+   Action log instead of a bare `HTTPError` with no detail.
+   `main.py` and `review_pr.py` both now call `get_diff_line_map()` and pass
+   it through. Verified the line-map parser against a crafted diff (50-line
+   file, one line changed) — correctly returns only the `unified=3` hunk
+   window (±3 lines), not the whole file.
+3. `dependency_agent` findings run through the same `valid_lines` filter
+   automatically (no prompt change needed there) since it's applied
+   generically at the `post_review()` layer, not per-agent.
+
 ## Known constraints / gotchas worth remembering
 
 - `run_semgrep`'s registry pass (`--config=auto`) needs network access to semgrep.dev; fails silently (empty findings) on restricted-egress self-hosted runners — the bundled `rules/security-rules.yml` pass is the guaranteed-network-free fallback, which is presumably *why* `rules/` was just added.

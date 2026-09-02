@@ -4,6 +4,7 @@ Tools that operate on the already-checked-out repo working tree
 """
 import json
 import os
+import re
 import subprocess
 
 MAX_OUTPUT_CHARS = 12000
@@ -25,6 +26,41 @@ def get_diff_summary(base_sha: str, head_sha: str, max_files: int = 60) -> str:
     if len(diff) > MAX_OUTPUT_CHARS:
         diff = diff[:MAX_OUTPUT_CHARS] + "\n...[diff truncated]..."
     return f"Changed files ({len(files)}):\n" + "\n".join(files) + "\n\nDiff:\n" + diff
+
+
+def get_diff_line_map(base_sha: str, head_sha: str) -> dict[str, set[int]]:
+    """Maps each changed file to the set of new-file line numbers that are
+    actually part of the diff (added or context lines). GitHub's create-review
+    API rejects the whole review with 422 if any inline comment's `line`
+    isn't one of these -- used to filter findings before posting so one
+    out-of-diff line doesn't take down every other finding with it.
+
+    Not subject to get_diff_summary's char/file truncation -- correctness
+    here matters more than prompt-context size, and this never reaches the LLM.
+    """
+    diff = _run(["git", "diff", "--unified=3", f"{base_sha}...{head_sha}"])
+    valid: dict[str, set[int]] = {}
+    current_file = None
+    new_line_no = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            current_file = target[2:] if target.startswith("b/") else None
+            new_line_no = None
+        elif line.startswith("@@"):
+            m = re.search(r"\+(\d+)", line)
+            new_line_no = int(m.group(1)) if m else None
+        elif current_file is None or new_line_no is None:
+            continue
+        elif line.startswith("+") and not line.startswith("+++"):
+            valid.setdefault(current_file, set()).add(new_line_no)
+            new_line_no += 1
+        elif line.startswith(" "):
+            valid.setdefault(current_file, set()).add(new_line_no)
+            new_line_no += 1
+        # lines starting with "-" (removed) don't exist in the new file and
+        # don't advance new_line_no; other lines (e.g. "\ No newline...") ignored
+    return valid
 
 
 def get_file_content(input_dict: dict, context: dict) -> dict:

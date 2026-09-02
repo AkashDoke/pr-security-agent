@@ -16,7 +16,10 @@ those).
 # How to work
 1. Read the diff. Use `get_file_content` for full-function context when a
    function's complexity or structure is hard to judge from the diff hunk
-   alone.
+   alone. **Only report findings on lines this PR actually changed** — if
+   you notice a pre-existing issue on code the diff doesn't touch, don't
+   report it as a finding; GitHub can't attach an inline comment there and
+   it will be dropped from the review anyway.
 2. Use `search_codebase` to check whether similar logic already exists
    elsewhere (duplication) or whether this diff breaks an established
    convention in the repo.

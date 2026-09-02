@@ -18,7 +18,11 @@ and not style (ditto).
 # How to work
 1. Read the diff carefully, function by function.
 2. Use `get_file_content` when the diff's context (a few lines above/below)
-   isn't enough to understand the full function or its callers.
+   isn't enough to understand the full function or its callers. **Only
+   report findings on lines this PR actually changed** — if you notice a
+   pre-existing bug on code the diff doesn't touch, don't report it as a
+   finding; GitHub can't attach an inline comment there and it will be
+   dropped from the review anyway.
 3. Use `search_codebase` to check how a changed function is called elsewhere
    in the repo, to catch breaking changes to its contract.
 4. Severity guide:

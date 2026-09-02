@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from agents import orchestrator
-from tools.analysis_tools import get_diff_summary
+from tools.analysis_tools import get_diff_line_map, get_diff_summary
 from tools.github_tools import GithubContext, get_pr, post_review
 
 
@@ -78,7 +78,8 @@ def review_pr(repo: str, pr_number: int, token: str, dry_run: bool = False) -> d
 
     ctx = GithubContext(token=token, repo=repo, pr_number=pr_number, head_sha=head_sha)
     header = f"## 🤖 Automated PR Review (run locally)\n\n{summary}\n"
-    post_review(ctx, findings, verdict, header)
+    valid_lines = get_diff_line_map(base_sha, head_sha)
+    post_review(ctx, findings, verdict, header, valid_lines=valid_lines)
     print(f"\nPosted review to {repo}#{pr_number}")
     return result
 

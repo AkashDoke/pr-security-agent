@@ -14,7 +14,7 @@ import os
 import sys
 
 from agents import orchestrator
-from tools.analysis_tools import get_diff_summary
+from tools.analysis_tools import get_diff_line_map, get_diff_summary
 from tools.github_tools import GithubContext, post_review
 
 
@@ -45,7 +45,8 @@ def main():
     ctx = GithubContext(token=token, repo=repo, pr_number=pr_number, head_sha=head_sha)
 
     header = f"## 🤖 Automated PR Review\n\n{summary}\n"
-    post_review(ctx, findings, verdict, header)
+    valid_lines = get_diff_line_map(base_sha, head_sha)
+    post_review(ctx, findings, verdict, header, valid_lines=valid_lines)
 
     if verdict == "request_changes":
         # Non-zero exit fails the Action job/check — useful if you wire this

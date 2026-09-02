@@ -52,25 +52,50 @@ def list_open_prs(repo: str, token: str) -> list[dict]:
     return resp.json()
 
 
-def post_review(ctx: GithubContext, findings: list[dict], verdict: str, summary: str) -> dict:
+def _finding_body(f: dict) -> str:
+    body = f"**[{f.get('severity','info').upper()}] {f.get('title','Finding')}**\n\n{f.get('description','')}"
+    if f.get("suggested_fix"):
+        body += f"\n\n```suggestion\n{f['suggested_fix']}\n```"
+    if f.get("agent"):
+        body += f"\n\n<sub>flagged by: {f['agent']}</sub>"
+    return body
+
+
+def post_review(ctx: GithubContext, findings: list[dict], verdict: str, summary: str,
+                 valid_lines: dict[str, set[int]] | None = None) -> dict:
+    """Posts one consolidated review. GitHub rejects the *entire* review with
+    422 if any inline comment's line isn't part of the diff, so findings
+    outside `valid_lines` (when given) are demoted into the summary body
+    instead of being sent as inline comments -- keeps one bad line from
+    silently losing every other finding.
+    """
     comments = []
+    out_of_diff = []
     for f in findings:
-        body = f"**[{f.get('severity','info').upper()}] {f.get('title','Finding')}**\n\n{f.get('description','')}"
-        if f.get("suggested_fix"):
-            body += f"\n\n```suggestion\n{f['suggested_fix']}\n```"
-        if f.get("agent"):
-            body += f"\n\n<sub>flagged by: {f['agent']}</sub>"
-        comments.append({"path": f["file"], "line": int(f["line"]), "body": body})
+        path, line = f["file"], int(f["line"])
+        if valid_lines is not None and line not in valid_lines.get(path, set()):
+            out_of_diff.append(f)
+            continue
+        comments.append({"path": path, "line": line, "body": _finding_body(f)})
+
+    body = summary
+    if out_of_diff:
+        body += "\n\n---\n**Additional findings on lines outside this diff's changed hunks** " \
+                "(can't be posted as inline comments, listed here instead):\n"
+        for f in out_of_diff:
+            body += f"\n- **[{f.get('severity','info').upper()}] {f['file']}:{f['line']}** {f.get('title','Finding')} — {f.get('description','')}"
 
     payload = {
         "commit_id": ctx.head_sha,
         "event": VERDICT_TO_EVENT.get(verdict, "COMMENT"),
-        "body": summary,
+        "body": body,
         "comments": comments,
     }
     resp = requests.post(
         f"{API}/repos/{ctx.repo}/pulls/{ctx.pr_number}/reviews",
         headers=ctx.headers, json=payload, timeout=30,
     )
+    if not resp.ok:
+        print(f"[github_tools] POST /reviews failed ({resp.status_code}): {resp.text}")
     resp.raise_for_status()
     return resp.json()

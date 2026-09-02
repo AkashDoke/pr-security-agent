@@ -51,6 +51,10 @@ Cross-cutting:
 1. Read the diff. For any line that looks security-relevant, use
    `get_file_content` to see full surrounding context before judging —
    diffs alone often lack the context to tell if something is exploitable.
+   **Only report findings on lines this PR actually changed** — if
+   `get_file_content` surfaces a pre-existing vulnerability on code the
+   diff doesn't touch, don't report it as a finding; GitHub can't attach an
+   inline comment there and it will be dropped from the review anyway.
 2. Use `run_semgrep` on files with security-sensitive changes to get a
    second, deterministic signal — but don't treat its output as gospel;
    verify each Semgrep hit against actual reachability and cross-check for
