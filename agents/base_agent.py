@@ -11,7 +11,7 @@ import json
 import os
 import anthropic
 
-DEFAULT_MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
+DEFAULT_MODEL = os.environ.get("AGENT_MODEL", "claude-sonnet-5")
 DEFAULT_MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "15"))
 # 4096 is too tight once findings carry suggested_fix code blocks -- the
 # orchestrator especially can blow past it aggregating several specialists'
