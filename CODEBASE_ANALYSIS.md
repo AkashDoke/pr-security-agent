@@ -181,6 +181,94 @@ agent was silently dropped too.
    automatically (no prompt change needed there) since it's applied
    generically at the `post_review()` layer, not per-agent.
 
+## Fixed bug: no backoff on transient Anthropic API errors (2026-09-03)
+
+**Symptom**: orchestrator's own summary reported `"dependency and React
+standards agents failed repeatedly with upstream overload errors and could
+not be recovered"` — a real run where the Anthropic API returned a 529
+`overloaded_error` for those two specialists' `messages.create()` calls, and
+recovered for the other three (security, pr_review, quality) purely by
+chance of timing.
+
+**Root cause**: `base_agent.Agent.run()` called `self.client.messages.create()`
+directly with no retry/backoff of its own. The Anthropic SDK client's
+built-in retry (`max_retries`, default 2) covers brief blips but not a
+sustained overload window — once exhausted, the exception propagates out of
+the dispatched specialist's `Agent.run()`, is caught by the *orchestrator's*
+tool-executor try/except (`agents/orchestrator.py` inherits this generic
+catch from `base_agent.py`), and surfaces to the orchestrator LLM as an
+`{"error": ...}` tool result. The orchestrator retried by immediately
+dispatching again (no delay) — which fails the same way if the outage is
+still ongoing — then correctly gave up and reported the coverage gap rather
+than crashing. Graceful, but avoidable: there was no actual waiting anywhere
+in the loop.
+
+**Fix attempted, then reverted per explicit user preference (2026-09-03)**:
+originally added `Agent._create_with_retry()` — exponential backoff
+(2/4/8/16/32s) on retryable status codes (429/500/502/503/504/529) and
+connection errors, plus a bounded-retry instruction in
+`orchestrator_system.md`. **User explicitly asked to remove the retry
+logic** ("remo rety logic i dont want that") — `base_agent.py` now calls
+`self.client.messages.create()` directly again, no backoff wrapper, no
+`API_MAX_RETRIES`/`API_RETRY_BASE_DELAY` constants. The `orchestrator_system.md`
+bounded-retry instruction was also separately reverted (by the user, via
+IDE, before this) and was not re-added.
+
+**What's still in place from this incident**: the `max_tokens` config
+fix below (that part was kept) and the *diagnosis* half of the retry
+work — `Agent.run()` still distinguishes `stop_reason == "max_tokens"`
+from other non-tool-use stops in its log/summary output, since that's
+independent of whether retries happen. What's gone is any automatic
+recovery from transient 5xx/529/429 errors — a sustained overload will
+now surface as an immediate failure (visible in the log, gracefully
+handled by the orchestrator's own error-tool-result path) rather than
+being retried. If this bites again, that's why — the retry code was
+deliberately removed, not an oversight.
+
+## Fixed bug: orchestrator silently drops everything at "ended without finish_review" (2026-09-03)
+
+**Symptom**: real run against a test PR bundling security + pr_review +
+quality + dependency + react_standards triggers all at once (per-agent
+findings existed, confirmed via logs) produced a final result of
+`"orchestrator ended without finish_review"` with zero findings — the
+entire review was lost even though every specialist had actually produced
+findings.
+
+**Root cause**: `base_agent.py` hardcoded `max_tokens=4096` on every
+`messages.create()` call, for every agent including the orchestrator. The
+orchestrator's own `finish_review` call has to serialize *every dispatched
+specialist's* findings (file/line/severity/title/description/suggested_fix
+each) into one JSON tool-call payload — with 5 specialists all firing (as
+in this test), that payload routinely exceeds 4096 output tokens. When the
+model hits the token cap mid-tool-call, the API returns
+`stop_reason="max_tokens"`, not `"tool_use"` — `Agent.run()`'s
+`response.stop_reason != "tool_use"` branch treats that identically to a
+model that genuinely chose to stop without calling any tool, producing the
+generic (and, until this fix, indistinguishable) `"ended without
+finish_review"` message and an empty findings list.
+
+**Fix**:
+1. `max_tokens` is now a configurable `Agent.__init__` param, defaulting to
+   `AGENT_MAX_TOKENS` env var (default `8192`, up from the hardcoded 4096).
+2. `agents/orchestrator.py` passes `max_tokens=16384` explicitly — it's the
+   one agent whose output payload scales with however many specialists ran,
+   so it gets more headroom than the per-specialist default.
+3. `Agent.run()`'s stop_reason handling now distinguishes `"max_tokens"`
+   (ran out of output budget — logs `"...raise AGENT_MAX_TOKENS"`) from any
+   other non-tool-use stop (logs the actual `stop_reason`) and always prints
+   it, so this failure mode is diagnosable directly from the Action log
+   instead of a bare, ambiguous one-liner. Verified with a mocked response
+   object for both cases.
+
+This is the third distinct "quiet total failure" bug found this session
+(after the 422-on-out-of-diff-line bug and the no-backoff-on-529 bug) — all
+three shared the same shape: one part of a multi-agent pipeline fails, and
+the failure silently discards *everything*, including work that already
+succeeded, rather than surfacing partial results or a diagnosable cause.
+Worth keeping an eye out for more instances of this pattern elsewhere in
+`base_agent.py`/`github_tools.py` if further "everything just vanished"
+reports come in.
+
 ## Known constraints / gotchas worth remembering
 
 - `run_semgrep`'s registry pass (`--config=auto`) needs network access to semgrep.dev; fails silently (empty findings) on restricted-egress self-hosted runners — the bundled `rules/security-rules.yml` pass is the guaranteed-network-free fallback, which is presumably *why* `rules/` was just added.

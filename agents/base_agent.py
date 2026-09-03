@@ -13,17 +13,23 @@ import anthropic
 
 DEFAULT_MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 DEFAULT_MAX_TURNS = int(os.environ.get("AGENT_MAX_TURNS", "15"))
+# 4096 is too tight once findings carry suggested_fix code blocks -- the
+# orchestrator especially can blow past it aggregating several specialists'
+# findings into one finish_review call, truncating mid-tool-call (see the
+# stop_reason handling in run() below).
+DEFAULT_MAX_TOKENS = int(os.environ.get("AGENT_MAX_TOKENS", "8192"))
 
 
 class Agent:
     def __init__(self, name, system_prompt, tools, tool_executor,
-                 model=DEFAULT_MODEL, max_turns=DEFAULT_MAX_TURNS):
+                 model=DEFAULT_MODEL, max_turns=DEFAULT_MAX_TURNS, max_tokens=DEFAULT_MAX_TOKENS):
         self.name = name
         self.system_prompt = system_prompt
         self.tools = tools
         self.tool_executor = tool_executor
         self.model = model
         self.max_turns = max_turns
+        self.max_tokens = max_tokens
         self.client = anthropic.Anthropic()
 
     def run(self, user_message: str, context: dict | None = None) -> dict:
@@ -36,7 +42,7 @@ class Agent:
             turns += 1
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=self.max_tokens,
                 system=self.system_prompt,
                 tools=self.tools,
                 messages=messages,
@@ -44,12 +50,22 @@ class Agent:
             messages.append({"role": "assistant", "content": response.content})
 
             if response.stop_reason != "tool_use":
-                # Model stopped without calling finish_review — treat as done,
-                # no structured findings (shouldn't normally happen if the
-                # prompt is well-written, but don't hang forever).
+                # Model stopped without calling finish_review. Most common
+                # cause: response.stop_reason == "max_tokens" -- it ran out
+                # of output budget mid-tool-call (e.g. the orchestrator
+                # aggregating many specialists' findings into one big
+                # finish_review payload) rather than actually choosing to
+                # stop. Distinguish that from a genuine early stop so it's
+                # diagnosable from the log instead of a silent empty result.
+                if response.stop_reason == "max_tokens":
+                    reason = (f"{self.name} ran out of output tokens (max_tokens={self.max_tokens}) "
+                              f"before calling finish_review -- raise AGENT_MAX_TOKENS")
+                else:
+                    reason = f"{self.name} ended without finish_review (stop_reason={response.stop_reason})"
+                print(f"[{self.name}] {reason}")
                 final_result = {
                     "findings": [],
-                    "summary": self._extract_text(response) or f"{self.name} ended without finish_review.",
+                    "summary": self._extract_text(response) or reason,
                     "verdict": "comment",
                 }
                 break
