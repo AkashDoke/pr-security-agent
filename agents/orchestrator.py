@@ -69,6 +69,11 @@ def run(diff_summary: str, context: dict | None = None) -> dict:
         tools=TOOLS,
         tool_executor=_make_dispatch_executor(diff_summary),
         max_turns=10,
+        # Higher than the default: its own finish_review call aggregates
+        # every dispatched specialist's findings (each with a description
+        # and suggested_fix) into one payload, so it needs more headroom
+        # than a single specialist producing only its own findings.
+        max_tokens=16384,
     )
     return agent.run(
         f"A pull request needs review. Decide which specialist agents to run, "
